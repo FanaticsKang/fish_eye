@@ -16,7 +16,7 @@ FATAL: In-source builds are not allowed.
 endif()
 
 #set( CMAKE_BUILD_TYPE "Debug" )
-set( CMAKE_CXX_FLAGS "-std=c++11 -O3" )
+set( CMAKE_CXX_FLAGS "-std=c++11 -O3 -Wall" )
 
 # # OpenMP
 # FIND_PACKAGE( OpenMP QUIET)

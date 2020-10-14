@@ -13,6 +13,7 @@
 
 using std::string;
 
+// 获取路径下的所有文件，linux版
 bool GetFiles(const string& path, std::vector<string>* const files) {
   if (files == nullptr) {
     return false;
@@ -54,7 +55,11 @@ int main(int argc, char** argv) {
   std::vector<string> files;
 
   // 获取该路径下的所有文件
-  GetFiles(argv[1], &files);
+
+  if (!GetFiles(argv[1], &files) || files.size() == 0) {
+    std::cout << "No images" << std::endl;
+    return -1;
+  }
 
   const int board_w = 8;
   const int board_h = 6;
@@ -62,7 +67,6 @@ int main(int argc, char** argv) {
   const int boardSize = 30;               // mm
   cv::Mat image, grayimage;
   cv::Size ChessBoardSize = cv::Size(board_w, board_h);
-  std::vector<cv::Point2f> tempcorners;
 
   int flag = 0;
   flag |= cv::fisheye::CALIB_RECOMPUTE_EXTRINSIC;
@@ -72,6 +76,7 @@ int main(int argc, char** argv) {
 
   std::vector<cv::Point3f> object;
   for (int j = 0; j < NPoints; ++j) {
+    //构造棋盘格坐标系
     object.emplace_back((j % board_w) * boardSize, (j / board_w) * boardSize,
                         0);
   }
@@ -86,11 +91,10 @@ int main(int argc, char** argv) {
   cv::Mat mapx, mapy;
   cv::Mat corrected;
 
-  std::ofstream intrinsicfile("intrinsics_front1103.txt");
-  std::ofstream disfile("dis_coeff_front1103.txt");
-  int num = 0;
-  bool bCalib = false;
-  while (num < files.size()) {
+  int has_checkboard = 0;
+  std::cout << "capture image: ";
+
+  for (size_t num = 0; num < files.size(); ++num) {
     image = cv::imread(files[num]);
     if (image.empty()) {
       break;
@@ -103,6 +107,7 @@ int main(int argc, char** argv) {
     bool findchessboard = cvCheckChessboard(&tempgray, ChessBoardSize);
 
     if (findchessboard) {
+      std::vector<cv::Point2f> tempcorners;
       bool find_corners_result =
           findChessboardCorners(grayimage, ChessBoardSize, tempcorners, 3);
       if (find_corners_result) {
@@ -114,14 +119,15 @@ int main(int argc, char** argv) {
         imshow("corner_image", image);
         cvWaitKey(100);
 
+        std::cout << num << ", " << std::flush;
         objectv.emplace_back(object);
         imagev.emplace_back(tempcorners);
-        std::cout << "capture " << num << " pictures" << std::endl;
+        ++has_checkboard;
       }
     }
-    tempcorners.clear();
-    num++;
   }
+  std::cout << "\nSuccess/Total image: " << has_checkboard << "/"
+            << files.size() << std::endl;
 
   cv::fisheye::calibrate(objectv, imagev, cv::Size(image.cols, image.rows),
                          intrinsics, distortion_coeff, cv::noArray(),
@@ -129,34 +135,43 @@ int main(int argc, char** argv) {
   cv::fisheye::initUndistortRectifyMap(intrinsics, distortion_coeff,
                                        cv::Matx33d::eye(), intrinsics,
                                        corrected_size, CV_16SC2, mapx, mapy);
+  cv::FileStorage cv_file("camera.yaml", cv::FileStorage::WRITE);
 
-  for (int i = 0; i < 3; ++i) {
-    for (int j = 0; j < 3; ++j) {
-      intrinsicfile << intrinsics(i, j) << "\t";
-    }
-    intrinsicfile << std::endl;
-  }
-  for (int i = 0; i < 4; ++i) {
-    disfile << distortion_coeff(i) << "\t";
-  }
-  intrinsicfile.close();
-  disfile.close();
+  cv_file << "Camera_type"
+          << "KannalaBrandt8";
 
-  num = 0;
-  while (num < files.size()) {
-    image = cv::imread(files[num++]);
+  cv_file << "Camera_fx" << intrinsics(0, 0);
+  cv_file << "Camera_fy" << intrinsics(1, 1);
+  cv_file << "Camera_cx" << intrinsics(0, 2);
+  cv_file << "Camera_cy" << intrinsics(1, 2);
 
-    if (image.empty()) break;
-    remap(image, corrected, mapx, mapy, cv::INTER_LINEAR,
-          cv::BORDER_TRANSPARENT);
+  std::cout << "camera intrisic: \n" << intrinsics << std::endl;
 
-    cv::imshow("corner_image", image);
-    cv::imshow("corrected", corrected);
-    cvWaitKey(200);
-  }
+  cv_file << "Camera_k1" << distortion_coeff(0);
+  cv_file << "Camera_k2" << distortion_coeff(1);
+  cv_file << "Camera_k3" << distortion_coeff(2);
+  cv_file << "Camera_k4" << distortion_coeff(3);
+  std::cout << "distortion coeff: \n" << distortion_coeff << std::endl;
 
-  cv::destroyWindow("corner_image");
-  cv::destroyWindow("corrected");
+  cv_file << "Camera_width" << image.size[1];
+  cv_file << "Camera_height" << image.size[0];
+  std::cout << "image size: " << image.size[1] << " x " << image.size[0]
+            << std::endl;
+
+  // show corrected image
+  // for (size_t num = 0; num < files.size(); ++num) {
+  //   image = cv::imread(files[num++]);
+
+  //   if (image.empty()) break;
+  //   remap(image, corrected, mapx, mapy, cv::INTER_LINEAR,
+  //         cv::BORDER_TRANSPARENT);
+
+  //   cv::imshow("corner_image", image);
+  //   cv::imshow("corrected", corrected);
+  //   cvWaitKey(200);
+  // }
+  std::cout << "press ESC to quit." << std::endl;
+  cv::waitKey(-1);
 
   image.release();
   grayimage.release();
